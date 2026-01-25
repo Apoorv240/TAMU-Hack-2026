@@ -1,141 +1,208 @@
-/*********
-  Rui Santos
-  Complete project details at https://randomnerdtutorials.com  
-*********/
-
-// Load Wi-Fi library
 #include <WiFi.h>
 
-// Replace with your network credentials
+// ---------- Wi-Fi AP ----------
 const char* ssid     = "ESP32-Access-Point";
 const char* password = "123456789";
-
-// Set web server port number to 80
 WiFiServer server(80);
 
-// Variable to store the HTTP request
+// ---------- STEP/DIR/EN PINS ----------
+#define J1_STEP_PIN  25
+#define J1_DIR_PIN   26
+#define J1_EN_PIN    27
+
+#define J2_STEP_PIN  14
+#define J2_DIR_PIN   12
+#define J2_EN_PIN    13
+
+// active LOW enable like your STM32 code (A4988/TB6600 style) [web:27]
+#define STEPS_PER_REV 1600   // same as STM32 define
+
 String header;
 
-// Auxiliar variables to store the current output state
-String output26State = "off";
-String output27State = "off";
+// current joint angles
+float current_angle_j1 = 0.0f;
+float current_angle_j2 = 0.0f;
 
-// Assign output variables to GPIO pins
-const int output26 = 26;
-const int output27 = 27;
+// ---------- HELPERS ----------
+uint32_t angle_to_steps(float angle_deg, uint32_t steps_per_rev) {
+  float steps_f = (angle_deg / 360.0f) * (float)steps_per_rev;
+  if (steps_f < 0) steps_f = 0;
+  return (uint32_t)(steps_f + 0.5f);
+}
+
+// enable/disable helpers (active LOW)
+void enable_driver(uint8_t en_pin) {
+  digitalWrite(en_pin, LOW);
+}
+void disable_driver(uint8_t en_pin) {
+  digitalWrite(en_pin, HIGH);
+}
+
+// ---------- HTTP PARSER: /arm?j1=..&j2=.. ----------
+void handleArmRequest(const String& path) {
+  float target_j1 = current_angle_j1;
+  float target_j2 = current_angle_j2;
+
+  int qPos = path.indexOf('?');
+  if (qPos >= 0) {
+    String query = path.substring(qPos + 1);
+
+    int j1Pos = query.indexOf("j1=");
+    if (j1Pos >= 0) {
+      int amp = query.indexOf('&', j1Pos);
+      String v = (amp >= 0) ? query.substring(j1Pos + 3, amp)
+                            : query.substring(j1Pos + 3);
+      target_j1 = v.toFloat();
+    }
+
+    int j2Pos = query.indexOf("j2=");
+    if (j2Pos >= 0) {
+      int amp = query.indexOf('&', j2Pos);
+      String v = (amp >= 0) ? query.substring(j2Pos + 3, amp)
+                            : query.substring(j2Pos + 3);
+      target_j2 = v.toFloat();
+    }
+  }
+
+  // clamp like STM32 (0..180)
+  if (target_j1 < 0.0f)   target_j1 = 0.0f;
+  if (target_j1 > 180.0f) target_j1 = 180.0f;
+  if (target_j2 < -180.0f)   target_j2 = -180.0f;
+  if (target_j2 > 180.0f) target_j2 = 180.0f;
+
+  // deltas
+  float delta1 = target_j1 - current_angle_j1;
+  float delta2 = target_j2 - current_angle_j2;
+
+  // nothing to do?
+  if (delta1 == 0.0f && delta2 == 0.0f) {
+    return;
+  }
+
+  uint8_t dirHigh1 = (delta1 >= 0.0f) ? HIGH : LOW;
+  uint8_t dirHigh2 = (delta2 >= 0.0f) ? HIGH : LOW;
+  float move_angle1 = (delta1 >= 0.0f) ? delta1 : -delta1;
+  float move_angle2 = (delta2 >= 0.0f) ? delta2 : -delta2;
+
+  uint32_t steps1 = angle_to_steps(move_angle1, STEPS_PER_REV);
+  uint32_t steps2 = angle_to_steps(move_angle2, STEPS_PER_REV);
+
+  if (steps1 == 0 && steps2 == 0) {
+    return;
+  }
+
+  // set directions once
+  digitalWrite(J1_DIR_PIN, dirHigh1);
+  digitalWrite(J2_DIR_PIN, dirHigh2);
+
+  // enable both drivers
+  enable_driver(J1_EN_PIN);
+  enable_driver(J2_EN_PIN);
+
+  // interleaved stepping: both motors move in parallel [web:50][web:41]
+  uint32_t i1 = 0, i2 = 0;
+  const uint32_t pulseHigh_ms = 2;   // your 2 ms high
+  const uint32_t baseDelay_ms = 2;   // your low delay (speed)
+
+  while (i1 < steps1 || i2 < steps2) {
+    // rising edges
+    if (i1 < steps1) digitalWrite(J1_STEP_PIN, HIGH);
+    if (i2 < steps2) digitalWrite(J2_STEP_PIN, HIGH);
+    delay(pulseHigh_ms);
+
+    // falling edges
+    if (i1 < steps1) digitalWrite(J1_STEP_PIN, LOW);
+    if (i2 < steps2) digitalWrite(J2_STEP_PIN, LOW);
+    delay(baseDelay_ms);
+
+    if (i1 < steps1) i1++;
+    if (i2 < steps2) i2++;
+  }
+
+  // disable both
+  disable_driver(J1_EN_PIN);
+  disable_driver(J2_EN_PIN);
+
+  current_angle_j1 = target_j1;
+  current_angle_j2 = target_j2;
+
+  Serial.print("J1 now: ");
+  Serial.print(current_angle_j1);
+  Serial.print("  J2 now: ");
+  Serial.println(current_angle_j2);
+}
 
 void setup() {
   Serial.begin(115200);
-  // Initialize the output variables as outputs
-  pinMode(output26, OUTPUT);
-  pinMode(output27, OUTPUT);
-  // Set outputs to LOW
-  digitalWrite(output26, LOW);
-  digitalWrite(output27, LOW);
 
-  // Connect to Wi-Fi network with SSID and password
+  pinMode(J1_STEP_PIN, OUTPUT);
+  pinMode(J1_DIR_PIN,  OUTPUT);
+  pinMode(J1_EN_PIN,   OUTPUT);
+  pinMode(J2_STEP_PIN, OUTPUT);
+  pinMode(J2_DIR_PIN,  OUTPUT);
+  pinMode(J2_EN_PIN,   OUTPUT);
+
+  // start disabled
+  disable_driver(J1_EN_PIN);
+  disable_driver(J2_EN_PIN);
+
   Serial.print("Setting AP (Access Point)…");
-  // Remove the password parameter, if you want the AP (Access Point) to be open
   WiFi.softAP(ssid, password);
-
   IPAddress IP = WiFi.softAPIP();
   Serial.print("AP IP address: ");
   Serial.println(IP);
-  
+
   server.begin();
 }
 
-void loop(){
-  WiFiClient client = server.available();   // Listen for incoming clients
+void loop() {
+  WiFiClient client = server.available();
 
-  if (client) {                             // If a new client connects,
-    Serial.println("New Client.");          // print a message out in the serial port
-    String currentLine = "";                // make a String to hold incoming data from the client
-    while (client.connected()) {            // loop while the client's connected
-      if (client.available()) {             // if there's bytes to read from the client,
-        char c = client.read();             // read a byte, then
-        Serial.write(c);                    // print it out the serial monitor
+  if (client) {
+    String currentLine = "";
+    header = "";
+    bool requestDone = false;
+
+    while (client.connected() && !requestDone) {
+      if (client.available()) {
+        char c = client.read();
         header += c;
-        if (c == '\n') {                    // if the byte is a newline character
-          // if the current line is blank, you got two newline characters in a row.
-          // that's the end of the client HTTP request, so send a response:
+
+        if (c == '\n') {
           if (currentLine.length() == 0) {
-            // HTTP headers always start with a response code (e.g. HTTP/1.1 200 OK)
-            // and a content-type so the client knows what's coming, then a blank line:
+            // parse once we hit blank line
+            int getPos  = header.indexOf("GET ");
+            int httpPos = header.indexOf(" HTTP/");
+            if (getPos >= 0 && httpPos > getPos) {
+              String path = header.substring(getPos + 4, httpPos);
+
+              if (path.startsWith("/arm")) {
+                handleArmRequest(path);
+              }
+            }
+
+            // respond
             client.println("HTTP/1.1 200 OK");
-            client.println("Content-type:text/html");
+            client.println("Content-type:text/plain");
             client.println("Connection: close");
             client.println();
-            
-            // turns the GPIOs on and off
-            if (header.indexOf("GET /26/on") >= 0) {
-              Serial.println("GPIO 26 on");
-              output26State = "on";
-              digitalWrite(output26, HIGH);
-            } else if (header.indexOf("GET /26/off") >= 0) {
-              Serial.println("GPIO 26 off");
-              output26State = "off";
-              digitalWrite(output26, LOW);
-            } else if (header.indexOf("GET /27/on") >= 0) {
-              Serial.println("GPIO 27 on");
-              output27State = "on";
-              digitalWrite(output27, HIGH);
-            } else if (header.indexOf("GET /27/off") >= 0) {
-              Serial.println("GPIO 27 off");
-              output27State = "off";
-              digitalWrite(output27, LOW);
-            }
-            
-            // Display the HTML web page
-            client.println("<!DOCTYPE html><html>");
-            client.println("<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
-            client.println("<link rel=\"icon\" href=\"data:,\">");
-            // CSS to style the on/off buttons 
-            // Feel free to change the background-color and font-size attributes to fit your preferences
-            client.println("<style>html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center;}");
-            client.println(".button { background-color: #4CAF50; border: none; color: white; padding: 16px 40px;");
-            client.println("text-decoration: none; font-size: 30px; margin: 2px; cursor: pointer;}");
-            client.println(".button2 {background-color: #555555;}</style></head>");
-            
-            // Web Page Heading
-            client.println("<body><h1>ESP32 Web Server</h1>");
-            
-            // Display current state, and ON/OFF buttons for GPIO 26  
-            client.println("<p>GPIO 26 - State " + output26State + "</p>");
-            // If the output26State is off, it displays the ON button       
-            if (output26State=="off") {
-              client.println("<p><a href=\"/26/on\"><button class=\"button\">ON</button></a></p>");
-            } else {
-              client.println("<p><a href=\"/26/off\"><button class=\"button button2\">OFF</button></a></p>");
-            } 
-               
-            // Display current state, and ON/OFF buttons for GPIO 27  
-            client.println("<p>GPIO 27 - State " + output27State + "</p>");
-            // If the output27State is off, it displays the ON button       
-            if (output27State=="off") {
-              client.println("<p><a href=\"/27/on\"><button class=\"button\">ON</button></a></p>");
-            } else {
-              client.println("<p><a href=\"/27/off\"><button class=\"button button2\">OFF</button></a></p>");
-            }
-            client.println("</body></html>");
-            
-            // The HTTP response ends with another blank line
+            client.print("J1=");
+            client.print(current_angle_j1);
+            client.print(" J2=");
+            client.println(current_angle_j2);
             client.println();
-            // Break out of the while loop
-            break;
-          } else { // if you got a newline, then clear currentLine
+
+            requestDone = true;
+          } else {
             currentLine = "";
           }
-        } else if (c != '\r') {  // if you got anything else but a carriage return character,
-          currentLine += c;      // add it to the end of the currentLine
+        } else if (c != '\r') {
+          currentLine += c;
         }
       }
     }
-    // Clear the header variable
+
     header = "";
-    // Close the connection
     client.stop();
-    Serial.println("Client disconnected.");
-    Serial.println("");
   }
 }

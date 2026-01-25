@@ -19,6 +19,14 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+
+#define RX_BUF_SIZE 64
+
+char rx_buf[RX_BUF_SIZE];
+
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -40,30 +48,67 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-TIM_HandleTypeDef htim3;
-
 UART_HandleTypeDef huart4;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 
-/* UART RX line buffer (interrupt‑driven) */
-#define RX_BUF_SIZE 64
+/* USER CODE END PV */
 
-static uint8_t  rx_byte;
-static char     rx_buf[RX_BUF_SIZE];
-static uint16_t rx_idx = 0;
-static uint8_t  line_ready = 0;
+/* Private function prototypes -----------------------------------------------*/
+void SystemClock_Config(void);
+static void MX_GPIO_Init(void);
+static void MX_UART4_Init(void);
+static void MX_USART2_UART_Init(void);
+/* USER CODE BEGIN PFP */
 
-/* Non‑blocking stepper state */
-static float    current_angle = 0.0f;
-static uint32_t remaining_steps = 0;
-static uint32_t step_delay_ms = 2;      // delay between steps in ms
-static GPIO_PinState current_dir = GPIO_PIN_RESET;
-static uint8_t  motor_active = 0;
-static uint32_t step_tick_counter = 0;  // counts 1‑ms ticks from TIM3
+/* USER CODE END PFP */
 
-/* same pin definitions as before */
+/* Private user code ---------------------------------------------------------*/
+/* USER CODE BEGIN 0 */
+
+int uart_read_line(char *buf, uint16_t maxlen)
+{
+  uint16_t idx = 0;
+  uint8_t ch;
+
+  while (idx < (maxlen - 1))
+  {
+    // blocking receive 1 byte on USART2
+    if (HAL_UART_Receive(&huart4, &ch, 1, HAL_MAX_DELAY) != HAL_OK)
+    {
+      return -1; // error
+    }
+
+    if (ch == '\n')    // line end
+      break;
+    if (ch == '\r')    // ignore CR
+      continue;
+
+    buf[idx++] = (char)ch;
+  }
+
+  buf[idx] = '\0';
+  return idx;
+}
+
+int parse_two_floats(const char *str, float *a, float *b)
+{
+  int ia = 0;
+  int ib = 0;
+
+  // expected format: "<int> <int>", e.g. "90 2"
+  if (sscanf(str, "%d %d", &ia, &ib) == 2)
+  {
+    *a = (float)ia;
+    *b = (float)ib;
+    return 0;
+  }
+
+  return -1;
+}
+
+
 #define STEP_GPIO_Port   GPIOC
 #define STEP_Pin         GPIO_PIN_8
 
@@ -73,127 +118,43 @@ static uint32_t step_tick_counter = 0;  // counts 1‑ms ticks from TIM3
 #define EN_GPIO_Port     GPIOA
 #define EN_Pin           GPIO_PIN_8
 
-#define STEPS_PER_REV    1600
+#define STEPS_PER_REV 1600
 
-/* USER CODE END PV */
+void step_motor(uint32_t steps, uint32_t delay_ms, GPIO_PinState dir)
+{
+  // Set direction
+  HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, dir);
 
-/* Private function prototypes -----------------------------------------------*/
-void SystemClock_Config(void);
-static void MX_GPIO_Init(void);
-static void MX_UART4_Init(void);
-static void MX_USART2_UART_Init(void);
-static void MX_TIM3_Init(void);
-/* USER CODE BEGIN PFP */
-
-/* USER CODE END PFP */
-
-/* Private user code ---------------------------------------------------------*/
-/* USER CODE BEGIN 0 */
+  for (uint32_t i = 0; i < steps; i++)
+  {
+    HAL_GPIO_WritePin(STEP_GPIO_Port, STEP_Pin, GPIO_PIN_SET);
+    HAL_Delay(2);                // pulse high 1 ms
+    HAL_GPIO_WritePin(STEP_GPIO_Port, STEP_Pin, GPIO_PIN_RESET);
+    HAL_Delay(delay_ms);         // low time controls speed
+  }
+}
 
 uint32_t angle_to_steps(float angle_deg, uint32_t steps_per_rev)
 {
-  float steps_f = (angle_deg / 360.0f) * (float)steps_per_rev;
-  if (steps_f < 0) steps_f = 0;
-  return (uint32_t)(steps_f + 0.5f);  // round
+    float steps_f = (angle_deg / 360.0f) * (float)steps_per_rev;
+    if (steps_f < 0) steps_f = 0;
+    return (uint32_t)(steps_f + 0.5f);  // round
 }
 
-/* Start a non‑blocking move: set up state; stepping is done in TIM3 ISR */
-void start_motor_move(float move_angle_deg, GPIO_PinState dir, uint32_t delay_ms)
+void step_motor_angle(float angle_deg,
+                      uint32_t steps_per_rev,
+                      uint32_t delay_ms,
+                      GPIO_PinState dir)
 {
-  remaining_steps = angle_to_steps(move_angle_deg, STEPS_PER_REV);
-  current_dir     = dir;
-  step_delay_ms   = delay_ms;
-  step_tick_counter = 0;
-
-  if (remaining_steps == 0)
-  {
-    motor_active = 0;
-    HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, GPIO_PIN_SET); // disable driver
-    HAL_TIM_Base_Stop_IT(&htim3);
-    return;
-  }
-
-  /* enable driver (active LOW), set direction */
-  HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, GPIO_PIN_RESET);
-  HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, current_dir);
-
-  motor_active = 1;
-  step_tick_counter = 0;
-
-  /* start timer interrupts (1 ms base period) */
-  HAL_TIM_Base_Start_IT(&htim3);
+    uint32_t steps = angle_to_steps(angle_deg, steps_per_rev);
+    step_motor(steps, delay_ms, dir);
 }
 
-/* Called from TIM3 interrupt at 1 ms period */
-static void motor_step_task_from_timer(void)
-{
-  if (!motor_active || remaining_steps == 0)
-    return;
-
-  if (++step_tick_counter < step_delay_ms)
-    return;
-
-  step_tick_counter = 0;
-
-  /* issue one step pulse: short high then low
-     (at 84 MHz, a few instructions give sub‑us pulses, which is fine for most drivers) */
-  HAL_GPIO_WritePin(STEP_GPIO_Port, STEP_Pin, GPIO_PIN_SET);
-  HAL_GPIO_WritePin(STEP_GPIO_Port, STEP_Pin, GPIO_PIN_RESET);
-
-  if (--remaining_steps == 0)
-  {
-    motor_active = 0;
-    HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, GPIO_PIN_SET);  // disable driver
-    HAL_TIM_Base_Stop_IT(&htim3);
-  }
-}
-
-/* Retarget printf to USART2 */
 int _write(int file, char *ptr, int len)
 {
   HAL_UART_Transmit(&huart2, (uint8_t *)ptr, len, HAL_MAX_DELAY);
   return len;
 }
-
-/* UART RX complete callback: assemble line terminated by '\n' on UART4 */
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
-{
-  if (huart == &huart4)
-  {
-    char ch = (char)rx_byte;
-
-    if (!line_ready)  // ignore further bytes if one line is pending
-    {
-      if (ch == '\n')
-      {
-        rx_buf[rx_idx] = '\0';
-        rx_idx = 0;
-        line_ready = 1;
-      }
-      else if (ch != '\r')
-      {
-        if (rx_idx < RX_BUF_SIZE - 1 && rx_idx < 9)  // keep your 8‑char limit (+1 for '\0')
-        {
-          rx_buf[rx_idx++] = ch;
-        }
-      }
-    }
-
-    /* re‑arm reception of next byte */
-    HAL_UART_Receive_IT(&huart4, &rx_byte, 1);
-  }
-}
-
-/* Timer period elapsed callback: called from TIM3 IRQ */
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-  if (htim == &htim3)
-  {
-	  HAL_GPIO_TogglePin(GPIOA, LD2_Pin);  // blink every 1 ms for testing
-    motor_step_task_from_timer();
-  }
-}
-
 /* USER CODE END 0 */
 
 /**
@@ -227,16 +188,10 @@ int main(void)
   MX_GPIO_Init();
   MX_UART4_Init();
   MX_USART2_UART_Init();
-  MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
-  current_angle = 0.0f;
 
-  /* start UART4 RX interrupt for first byte */
-  HAL_UART_Receive_IT(&huart4, &rx_byte, 1);
   /* USER CODE END 2 */
-
-  start_motor_move(90.0f, GPIO_PIN_SET, 2);
-
+  float current_angle = 0.0f;
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
@@ -244,6 +199,48 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+
+
+	  /* USER CODE END WHILE */
+	  /* USER CODE BEGIN 3 */
+
+	  float target_angle = 0.0f;
+	  float dummy = 0.0f;   // second float ignored for now
+
+	  int len = uart_read_line(rx_buf, RX_BUF_SIZE);
+	  if (len > 0) {
+	      HAL_GPIO_TogglePin(GPIOA, LD2_Pin);  // blink Nucleo LED each line
+	      HAL_Delay(1000);
+	  }
+	  if (len > 0)
+	  {
+	    if (parse_two_floats(rx_buf, &target_angle, &dummy) == 0)
+	    {
+	    	if (target_angle < 0.0f || target_angle > 180.0f)
+	    	{
+	    		printf("Ignored angle: %d\r\n", (int)target_angle);
+	    	}
+	    	else
+	    	{
+	    		printf("Parsed: %d %d\r\n", (int)target_angle, (int)dummy);
+			  // Compute difference
+			  float delta = target_angle - current_angle;
+			  GPIO_PinState dir = (delta >= 0.0f) ? GPIO_PIN_SET : GPIO_PIN_RESET;
+			  float move_angle = (delta >= 0.0f) ? delta : -delta;
+
+			  // Enable driver (active LOW)
+			  HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, GPIO_PIN_RESET);
+
+			  // Move by |delta| degrees
+			  step_motor_angle(move_angle, STEPS_PER_REV, 2, dir);
+
+			  // Update current angle
+			  current_angle = target_angle;
+	    	}
+	    }
+	  }
+
+    /* USER CODE END 3 */
   }
   /* USER CODE END 3 */
 }
@@ -293,51 +290,6 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-}
-
-/**
-  * @brief TIM3 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM3_Init(void)
-{
-
-  /* USER CODE BEGIN TIM3_Init 0 */
-
-  /* USER CODE END TIM3_Init 0 */
-
-  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-
-  /* USER CODE BEGIN TIM3_Init 1 */
-
-  /* USER CODE END TIM3_Init 1 */
-  htim3.Instance = TIM3;
-  htim3.Init.Prescaler = 0;
-  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 65535;
-  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM3_Init 2 */
-
-  /* USER CODE END TIM3_Init 2 */
-
 }
 
 /**

@@ -1,8 +1,10 @@
-from camera import run_camera
+from camera import run_camera, FPS
 from serial_monitor import serial_monitor, SerialBuffer
 import time
 import threading
 from queue import Queue
+
+import requests
 
 from flask import Flask, Response, send_from_directory, render_template, jsonify
 import os
@@ -13,6 +15,7 @@ from glob import glob
 stop_event = threading.Event()
 serial_buf = SerialBuffer()
 frame_buf = Queue(maxsize=1)
+joint_buf = Queue(maxsize=1)
 
 app = Flask(__name__)
 
@@ -48,7 +51,7 @@ def gen_stream():
                 h, w, _ = frame.shape
                 filename = f"{current_case_id}.mp4" if current_case_id else "latest.mp4"
                 path = os.path.join("recordings", filename)
-                video_writer = cv2.VideoWriter(path, fourcc, 20.0, (w, h))
+                video_writer = cv2.VideoWriter(path, fourcc, FPS, (w, h))
 
             video_writer.write(frame)
         else:
@@ -58,7 +61,7 @@ def gen_stream():
                 video_writer = None
 
         # live stream (always)
-        ret, jpeg = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 20])
+        ret, jpeg = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 5])
         if not ret:
             continue
         frame_bytes = jpeg.tobytes()
@@ -85,7 +88,7 @@ def recordings_list():
 
 @app.route("/download/<name>")
 def download(name):
-    return send_from_directory("recordings", name, as_attachment=True)
+    return send_from_directory("recordings", name, as_attachment=True, mimetype="video/mp4")
 
 
 @app.route("/play/<name>")
@@ -108,6 +111,16 @@ def stop_case():
     recording_active = False
     return jsonify({"ok": True})
 
+def write_esp32(joint_buf: Queue, stop_event):
+    while not stop_event.is_set():
+        t1, t2 = joint_buf.get()
+        # print("HERE!")
+        response = requests.get(f"http://192.168.4.1/arm?j1={int(t1)}&j2={int(t2)}")
+        # print(response.text)
+        time.sleep(0.03)
+
+def disable_esp32():
+    response = requests.get(f"https://192.168.4.1/arm?enable=0")
 
 def main():
     t1 = threading.Thread(
@@ -117,12 +130,18 @@ def main():
     )
     t3 = threading.Thread(
         target=run_camera,
-        args=(frame_buf, serial_buf, stop_event),
+        args=(frame_buf, serial_buf, joint_buf, stop_event),
         daemon=True,
+    )
+    t4 = threading.Thread(
+        target=write_esp32,
+        args=(joint_buf, stop_event,),
+        daemon=True
     )
 
     t1.start()
     t3.start()
+    t4.start()
 
     try:
         app.run(host="0.0.0.0", port=5000, threaded=True)
@@ -132,6 +151,7 @@ def main():
         stop_event.set()
         t1.join(timeout=1.0)
         t3.join(timeout=1.0)
+        t4.join(timeout=1.0)
         if video_writer is not None:
             video_writer.release()
         print("Exited cleanly.")

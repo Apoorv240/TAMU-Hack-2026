@@ -1,2 +1,7 @@
 /venv
 /__pycache__
+/pc/__pycache__
+/pc/recordings
+/stm32/Stepper Motor Driver/.settings
+/stm32/Stepper Motor Driver/D*
+/stm32/Stepper Motor Driver/.*

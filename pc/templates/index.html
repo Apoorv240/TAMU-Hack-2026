@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Smart OR Lighting Console</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #070b18;
+      color: #f5f5f5;
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+    .sidebar {
+      width: 260px;
+      background: #121628;
+      padding: 16px;
+      box-shadow: 2px 0 8px rgba(0,0,0,0.4);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .sidebar h1 {
+      font-size: 18px;
+      margin: 0 0 8px 0;
+    }
+    .sidebar h2 {
+      font-size: 14px;
+      margin: 16px 0 4px 0;
+      opacity: 0.8;
+    }
+    .recordings-list {
+      flex: 1;
+      overflow-y: auto;
+      border-radius: 4px;
+      background: #181c30;
+      padding: 8px;
+      font-size: 13px;
+    }
+    .recording-item {
+      padding: 6px 8px;
+      margin-bottom: 4px;
+      border-radius: 4px;
+      cursor: pointer;
+      background: #1f2337;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .recording-item:hover {
+      background: #2d3350;
+    }
+    .recording-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 150px;
+    }
+    .main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      grid-template-rows: 100%;
+      gap: 8px;
+      padding: 12px;
+      box-sizing: border-box;
+    }
+    .center-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .video-main {
+      flex: 1;
+      background: #000;
+      border-radius: 8px;
+      border: 2px solid #262b3f;
+      overflow: hidden;
+      position: relative;
+    }
+    .video-main img,
+    .video-main video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+      background: #000;
+    }
+    .controls {
+      display: flex;
+      gap: 8px;
+    }
+    .btn {
+      padding: 6px 12px;
+      background: #2f6bff;
+      border-radius: 4px;
+      color: #fff;
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .btn.secondary {
+      background: #30354a;
+    }
+    .right-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .card {
+      flex: 1;
+      background: #121628;
+      border-radius: 8px;
+      padding: 10px;
+      box-sizing: border-box;
+      font-size: 13px;
+    }
+    .card h3 {
+      margin: 0 0 6px 0;
+      font-size: 14px;
+    }
+    .small-text {
+      font-size: 12px;
+      opacity: 0.7;
+    }
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Left: recordings list -->
+  <div class="sidebar">
+    <h1>Recordings</h1>
+    <div class="recordings-list" id="recordings-list">
+      {% for name in recordings %}
+      <div class="recording-item" onclick="playRecording('{{ name }}')">
+        <span class="recording-name">{{ name }}</span>
+        <button class="btn secondary" onclick="event.stopPropagation(); downloadRecording('{{ name }}')">↓</button>
+      </div>
+      {% endfor %}
+    </div>
+
+    <h2>Recording Control</h2>
+    <div class="controls">
+      <button class="btn" onclick="startCase()">Start</button>
+      <button class="btn secondary" onclick="stopCase()">Stop</button>
+    </div>
+  </div>
+
+  <!-- Center + right -->
+  <div class="main">
+    <!-- Center: live or playback -->
+    <div class="center-panel">
+      <div class="video-main" id="video-container">
+        <!-- live stream by default -->
+        <img id="live-stream" src="/video" alt="Live OR view">
+        <video id="playback" controls style="display:none;"></video>
+      </div>
+      <div class="controls">
+        <button class="btn secondary" onclick="showLive()">Live</button>
+      </div>
+    </div>
+
+    <!-- Right: 3 analytic placeholder cards -->
+    <div class="right-panel">
+      <div class="card">
+        <h3>Motion Metrics</h3>
+        <p class="small-text">
+          Placeholder for hand trajectory length, speed, and smoothness metrics.
+        </p>
+      </div>
+      <div class="card">
+        <h3>Lighting Stability</h3>
+        <p class="small-text">
+          Placeholder for brightness over time and anti-shadow adjustments.
+        </p>
+      </div>
+      <div class="card">
+        <h3>Case Summary</h3>
+        <p class="small-text">
+          Placeholder for total duration, number of light interactions, and mode usage.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    async function refreshRecordings() {
+      const res = await fetch('/recordings');
+      const files = await res.json();
+      const list = document.getElementById('recordings-list');
+      list.innerHTML = '';
+      files.forEach(name => {
+        const div = document.createElement('div');
+        div.className = 'recording-item';
+        div.onclick = () => playRecording(name);
+
+        const span = document.createElement('span');
+        span.className = 'recording-name';
+        span.textContent = name;
+
+        const btn = document.createElement('button');
+        btn.className = 'btn secondary';
+        btn.textContent = '↓';
+        btn.onclick = (e) => {
+          e.stopPropagation();
+          downloadRecording(name);
+        };
+
+        div.appendChild(span);
+        div.appendChild(btn);
+        list.appendChild(div);
+      });
+    }
+
+    async function startCase() {
+      await fetch('/start_case', { method: 'POST' });
+      await refreshRecordings();
+    }
+
+    async function stopCase() {
+      await fetch('/stop_case', { method: 'POST' });
+      await refreshRecordings();
+    }
+
+    function showLive() {
+      const img = document.getElementById('live-stream');
+      const vid = document.getElementById('playback');
+      img.style.display = 'block';
+      vid.style.display = 'none';
+      vid.pause();
+    }
+
+    function playRecording(name) {
+      const img = document.getElementById('live-stream');
+      const vid = document.getElementById('playback');
+      img.style.display = 'none';
+      vid.style.display = 'block';
+      vid.src = '/play/' + encodeURIComponent(name);
+      vid.load();
+      vid.play();
+    }
+
+    function downloadRecording(name) {
+      window.location.href = '/download/' + encodeURIComponent(name);
+    }
+  </script>
+
+</body>
+</html>

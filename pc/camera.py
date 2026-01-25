@@ -4,6 +4,7 @@ import threading
 import math
 
 from serial_monitor import SerialBuffer
+from queue import Queue
 
 SCREEN_HEIGHT = 500
 SCREEN_WIDTH = 700
@@ -62,7 +63,7 @@ def arm_points_from_angles(theta1, theta2):
 
     return (bx, by), (x1, y1), (x2, y2)
 
-def run_camera(buffer: SerialBuffer, stop_event: threading.Event):
+def run_camera(frame_buffer: Queue, buffer: SerialBuffer, stop_event: threading.Event):
     cap = cv2.VideoCapture(1, cv2.CAP_DSHOW)  # try 0, if that fails try 1
     detector = HandDetector(maxHands=2, detectionCon=0.4)
 
@@ -82,9 +83,13 @@ def run_camera(buffer: SerialBuffer, stop_event: threading.Event):
             cv2.circle(img, (x, y), 8, (0, 0, 255), -1)
 
             x, y = coordinate_transform(x, y)
+
             # print(f"({x}, {y})")
 
             theta1, theta2 = inverse_kinematics(x, y)
+
+            if theta1 == 0 and theta2 == 0:
+                continue
 
             p0, p1, p2 = arm_points_from_angles(theta1, theta2)
 
@@ -97,6 +102,11 @@ def run_camera(buffer: SerialBuffer, stop_event: threading.Event):
             buffer.writeOut(f"{theta1:.2f} {theta2:.2f}")
 
         cv2.imshow("Hands", cv2.flip(img, -1))
+
+        if frame_buffer.full():
+            frame_buffer.get_nowait()
+        frame_buffer.put(cv2.flip(img, -1))
+
         if cv2.waitKey(1) & 0xFF == ord("q"):
             break
 

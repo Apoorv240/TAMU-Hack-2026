@@ -167,36 +167,58 @@ The system performs multiple coordinate transformations to map hand positions fr
 Camera frames capture hand position in pixel coordinates with origin at the top-left corner. The transformation to normalized arm coordinates accounts for:
 
 1. **Vertical Flip and Centering**: Convert image coordinates to a centered coordinate system
-$$y' = -(y - \text{SCREEN\_HEIGHT}/2) + \text{SCREEN\_HEIGHT}/2$$
 
-where $\text{SCREEN\_HEIGHT} = 500$ pixels.
+```
+y' = -(y - SCREEN_HEIGHT/2) + SCREEN_HEIGHT/2
+```
+
+where `SCREEN_HEIGHT = 500` pixels.
 
 2. **Scaling and Offset**: Convert from pixel space to metric arm space using calibrated conversion factors
-$$x_{\text{arm}} = \frac{x}{\text{WIDTH\_CONV}} - x_{\text{offset}}, \quad y_{\text{arm}} = \frac{y'}{\text{HEIGHT\_CONV}}$$
 
-where $\text{WIDTH\_CONV} = 23$ pixels/unit, $\text{HEIGHT\_CONV} = 25$ pixels/unit, and $x_{\text{offset}} = 15$ units.
+```
+x_arm = x / WIDTH_CONV - x_offset
+y_arm = y' / HEIGHT_CONV
+```
+
+where `WIDTH_CONV = 23` pixels/unit, `HEIGHT_CONV = 25` pixels/unit, and `x_offset = 15` units.
 
 Combined transformation:
-$$(x_{\text{arm}}, y_{\text{arm}}) = \left(\frac{x}{23} - 15, \frac{-(y - 250) + 250}{25}\right)$$
+
+```
+x_arm = x / 23 - 15
+y_arm = (-(y - 250) + 250) / 25
+```
 
 ### Arm Joint Angles to Pixel Coordinates
 
 The inverse transformation renders the arm on the display by converting joint angles back to pixel coordinates for visualization.
 
 **Forward Kinematics**: From joint angles, compute end-effector position
-$$x_{\text{ee}} = L_1\cos(\theta_1) + L_2\cos(\theta_1 + \theta_2)$$
-$$y_{\text{ee}} = L_1\sin(\theta_1) + L_2\sin(\theta_1 + \theta_2)$$
 
-**Pixel Mapping**: With base position at $(x_b, y_b) = (\text{SCREEN\_WIDTH}/2, \text{SCREEN\_HEIGHT})$ and accounting for the inverted y-axis in image coordinates:
+```
+x_ee = L1 * cos(θ1) + L2 * cos(θ1 + θ2)
+y_ee = L1 * sin(θ1) + L2 * sin(θ1 + θ2)
+```
+
+**Pixel Mapping**: With base position at `(x_b, y_b) = (SCREEN_WIDTH/2, SCREEN_HEIGHT)` and accounting for the inverted y-axis in image coordinates:
 
 Shoulder joint position:
-$$x_1 = x_b + L_1^{\text{px}}\cos(\theta_1), \quad y_1 = y_b - L_1^{\text{px}}\sin(\theta_1)$$
+
+```
+x1 = x_b + L1_px * cos(θ1)
+y1 = y_b - L1_px * sin(θ1)
+```
 
 End-effector position:
-$$\theta_{12} = \theta_1 + \theta_2$$
-$$x_2 = x_1 + L_2^{\text{px}}\cos(\theta_{12}), \quad y_2 = y_1 - L_2^{\text{px}}\sin(\theta_{12})$$
 
-where $L_1^{\text{px}} = L_1 \times 24$ and $L_2^{\text{px}} = L_2 \times 24$ (pixels per unit link length).
+```
+θ12 = θ1 + θ2
+x2 = x1 + L2_px * cos(θ12)
+y2 = y1 - L2_px * sin(θ12)
+```
+
+where `L1_px = L1 * 24` and `L2_px = L2 * 24` (pixels per unit link length).
 
 ## Challenges
 

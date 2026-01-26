@@ -4,7 +4,9 @@ import threading
 import math
 import time
 
-from serial_monitor import SerialBuffer
+from ..arm.kinematics import inverse_kinematics, L1_PX, L2_PX
+
+from ..util.serial_monitor import SerialBuffer
 from queue import Queue
 
 SCREEN_HEIGHT = 500
@@ -30,35 +32,6 @@ def coordinate_transform(x, y):
 
     x, y = x/WIDTH_CONV - 15, y/HEIGHT_CONV
     return (x, y)
-
-
-L1 = 10.0
-L2 = 7
-
-L1_PX = L1*24
-L2_PX = L2*24
-
-def inverse_kinematics(x, y):
-    r2 = x * x + y * y
-
-    # Within semicircle
-    if r2 > (L1 + L2) ** 2 or r2 < (L1 - L2) ** 2:
-        return (0, 0)
-
-    # Elbow angle
-    c2 = (r2 - L1 * L1 - L2 * L2) / (2 * L1 * L2)
-    c2 = max(-1.0, min(1.0, c2)) 
-    # Choose elbow configuration: + for one, - for the other
-    s2 = -math.sqrt(1.0 - c2 * c2)
-    theta2 = math.atan2(s2, c2)   # use -s2 for the other branch
-
-    # Shoulder angle
-    phi = math.atan2(y, x)
-    k1 = L1 + L2 * c2
-    k2 = L2 * s2
-    theta1 = phi - math.atan2(k2, k1)
-
-    return theta1, theta2
 
 
 def arm_points_from_angles(theta1, theta2):

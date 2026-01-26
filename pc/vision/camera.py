@@ -50,8 +50,8 @@ def arm_points_from_angles(theta1, theta2):
 
 def run_camera(frame_buffer: Queue,
                buffer: SerialBuffer,
-               joint_buffer: Queue,
                stability_buffer: Queue,
+               target_buffer: Queue,
                stop_event: threading.Event):
     global video_writer, release_flag
     print("Camera thread started")
@@ -106,6 +106,10 @@ def run_camera(frame_buffer: Queue,
                 # transform to your working coordinates
                 x, y = coordinate_transform(x_px, y_px)
 
+                if target_buffer.full():
+                    target_buffer.get_nowait()
+                target_buffer.put((x, y))
+
                 theta1, theta2 = inverse_kinematics(x, y)
                 if theta1 == 0 and theta2 == 0:
                     # unreachable pose; still keep stability log, just skip IK
@@ -116,16 +120,7 @@ def run_camera(frame_buffer: Queue,
                     cv2.arrowedLine(img, p0, p1, (255, 0, 0), 4, tipLength=0.1)
                     cv2.arrowedLine(img, p1, p2, (0, 255, 0), 4, tipLength=0.1)
 
-                    theta1 = math.degrees(theta1)
-                    theta2 = math.degrees(theta2)
-                    theta1 = -(theta1 - 90) + 90
-                    theta2 = -theta2
-
                     buffer.writeOut(f"{theta1:.2f} {theta2:.2f}")
-
-                    if joint_buffer.full():
-                        joint_buffer.get_nowait()
-                    joint_buffer.put((theta1, theta2))
 
         if video_writer:
             print("Writing frame")

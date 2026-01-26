@@ -1,4 +1,4 @@
-from flask import Flask, Response, send_from_directory, render_template, jsonify
+from flask import Flask, Response, send_from_directory, render_template, jsonify, request
 from flask_socketio import SocketIO, emit
 from queue import Queue
 import os
@@ -6,7 +6,7 @@ from glob import glob
 import cv2
 import time
 
-from ..vision.camera import FPS
+from ..vision.camera import FPS, coordinate_transform
 
 recordings_dir = os.path.join(os.path.dirname(__file__), "recordings")
 os.makedirs(recordings_dir, exist_ok=True)
@@ -22,6 +22,7 @@ fourcc = cv2.VideoWriter_fourcc(*'avc1')
 
 frame_buf = None
 stop_event = None
+target_buf = None
 
 def list_recordings():
     files = sorted(
@@ -78,6 +79,18 @@ def video():
 @app.route("/recordings")
 def recordings_list():
     return jsonify(list_recordings())
+
+
+@app.route("/update_target", methods=["POST"])
+def update_target():
+    data = request.get_json()
+    x, y = data['x'], data['y']
+    if target_buf.full():
+        target_buf.get_nowait()
+    # x, y = coordinate_transform(x, y)
+    target_buf.put((x, y))
+    socketio.emit('target_update', {'x': x, 'y': y})
+    return jsonify({"ok": True})
 
 
 @app.route("/download/<name>")

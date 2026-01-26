@@ -1,13 +1,12 @@
-from pc.vision.camera import run_camera, FPS
+from pc.vision.camera import run_camera
 from pc.util.serial_monitor import serial_monitor, SerialBuffer
 import time
 import threading
 from queue import Queue
 
 import requests
-import os
 
-from pc.arm.kinematics import process_joints
+from pc.arm.kinematics import process_joints, compute_kinematics
 from pc.vision.stability import stability_worker
 from pc.site.site import video_writer, socketio, app
 import pc.site as site
@@ -19,10 +18,11 @@ frame_buf = Queue(maxsize=1)
 joint_buf = Queue(maxsize=1)
 stability_buf = Queue(maxsize=1000)
 pid_buf = Queue(maxsize=1)
+target_buf = Queue(maxsize=1)
 
 site.site.frame_buf = frame_buf
 site.site.stop_event = stop_event
-
+site.site.target_buf = target_buf
 
 def write_esp32(joint_buf: Queue, stop_event):
     prev_t1 = 0
@@ -52,7 +52,7 @@ def main():
     )
     t3 = threading.Thread(
         target=run_camera,
-        args=(frame_buf, serial_buf, joint_buf, stability_buf, stop_event),
+        args=(frame_buf, serial_buf, stability_buf, target_buf, stop_event),
         daemon=True,
     )
     t4 = threading.Thread(
@@ -70,12 +70,18 @@ def main():
         args=(joint_buf, pid_buf, stop_event),
         daemon=True
     )
+    t7 = threading.Thread(
+        target=compute_kinematics,
+        args=(target_buf, joint_buf, socketio, stop_event),
+        daemon=True
+    )
 
     t1.start()
     t3.start()
     t4.start()
     t5.start()
     t6.start()
+    t7.start()
 
     try:
         socketio.run(app, host="0.0.0.0", port=5000)
@@ -88,6 +94,7 @@ def main():
         t4.join(timeout=1.0)
         t5.join(timeout=1.0)
         t6.join(timeout=1.0)
+        t7.join(timeout=1.0)
         if video_writer is not None:
             video_writer.release()
         print("Exited cleanly.")

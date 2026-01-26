@@ -93,6 +93,12 @@
       display: block;
       background: #000;
     }
+    .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      pointer-events: auto;
+    }
     .controls {
       display: flex;
       gap: 10px;
@@ -180,6 +186,7 @@
         <!-- live stream by default -->
         <img id="live-stream" src="/video" alt="Live OR view">
         <video id="playback" controls style="display:none;"></video>
+        <canvas id="overlay" class="overlay"></canvas>
       </div>
     </div>
 
@@ -210,6 +217,75 @@
     let startTime = Date.now();
     const canvas = document.getElementById('stabilityChart');
     const ctx = canvas.getContext('2d');
+
+    // Overlay for target
+    const img = document.getElementById('live-stream');
+    const overlay = document.getElementById('overlay');
+    const overlayCtx = overlay.getContext('2d');
+    let currentTarget = {x: 0, y: 10}; // default center in transformed space
+    let isDragging = false;
+    let dragOffset = {x: 0, y: 0};
+
+    function resizeOverlay() {
+      overlay.width = img.clientWidth;
+      overlay.height = img.clientHeight;
+      drawTarget();
+    }
+
+    function drawTarget() {
+      overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+      overlayCtx.setLineDash([5, 5]);
+      overlayCtx.strokeStyle = 'yellow';
+      overlayCtx.lineWidth = 2;
+      overlayCtx.beginPath();
+      const drawX = ((15 - currentTarget.x) / 30.2) * overlay.width;
+      const drawY = (currentTarget.y / 20) * overlay.height;
+      overlayCtx.arc(drawX, drawY, 20, 0, 2 * Math.PI);
+      overlayCtx.stroke();
+    }
+
+    img.onload = resizeOverlay;
+    window.addEventListener('resize', resizeOverlay);
+
+    overlay.addEventListener('mousedown', (e) => {
+      const rect = overlay.getBoundingClientRect();
+      const mouseX = (1 - (e.clientX - rect.left) / rect.width) * 30.2 - 15;
+      const mouseY = ((e.clientY - rect.top) / rect.height) * 20;
+      const dist = Math.sqrt((mouseX - currentTarget.x)**2 + (mouseY - currentTarget.y)**2);
+      if (dist < 1) {  // since radius in coord space is small
+        isDragging = true;
+        dragOffset.x = mouseX - currentTarget.x;
+        dragOffset.y = mouseY - currentTarget.y;
+      }
+    });
+
+    overlay.addEventListener('mousemove', (e) => {
+      if (isDragging) {
+        const rect = overlay.getBoundingClientRect();
+        const mouseX = (1 - (e.clientX - rect.left) / rect.width) * 30.2 - 15;
+        const mouseY = ((e.clientY - rect.top) / rect.height) * 20;
+        currentTarget.x = mouseX - dragOffset.x;
+        currentTarget.y = mouseY - dragOffset.y;
+        drawTarget();
+      }
+    });
+
+    overlay.addEventListener('mouseup', () => {
+      if (isDragging) {
+        isDragging = false;
+        fetch('/update_target', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({x: currentTarget.x, y: currentTarget.y})
+        });
+      }
+    });
+
+    socket.on('target_update', function(data) {
+      currentTarget.x = data.x;
+      currentTarget.y = data.y;
+      drawTarget();
+    });
 
     function draw() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);

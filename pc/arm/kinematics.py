@@ -67,3 +67,26 @@ def process_joints(joint_buffer: Queue, pid_buffer: Queue, stop_event):
         pid_buffer.put((cur1, cur2))
 
         time.sleep(dt)
+
+def compute_kinematics(target_buffer: Queue, joint_buffer: Queue, socketio, stop_event):
+    while not stop_event.is_set():
+        x = 0
+        y = 0
+        while not target_buffer.empty():
+            x, y = target_buffer.get()
+            print(f"{x}, {y}")
+            socketio.emit('target_update', {'x': x, 'y': y})
+        theta1, theta2 = inverse_kinematics(x, y)
+        if theta1 == 0 and theta2 == 0:
+            pass
+        else:
+            theta1 = math.degrees(theta1)
+            theta2 = math.degrees(theta2)
+            theta1 = -(theta1 - 90) + 90
+            theta2 = -theta2
+
+            if joint_buffer.full():
+                joint_buffer.get_nowait()
+            joint_buffer.put((theta1, theta2))
+        
+        time.sleep(0.01)

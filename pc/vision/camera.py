@@ -33,6 +33,11 @@ def coordinate_transform(x, y):
     x, y = x/WIDTH_CONV - 15, y/HEIGHT_CONV
     return (x, y)
 
+def coordinate_transform_backwards(x, y):
+    x = (x + 15) * WIDTH_CONV
+    y = y * HEIGHT_CONV
+    y = SCREEN_HEIGHT - y
+    return x, y
 
 def arm_points_from_angles(theta1, theta2):
     bx, by = int(SCREEN_WIDTH/2), int(SCREEN_HEIGHT)
@@ -91,7 +96,7 @@ def run_camera(frame_buffer: Queue,
             stability_buffer.put((now, lmList[13][0], lmList[13][1]))
             # -------------------------
 
-            if False:
+            if is_pointing:
                 cv2.imshow("Hands", img)
                 if frame_buffer.full():
                     frame_buffer.get_nowait()

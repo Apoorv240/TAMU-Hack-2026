@@ -1,17 +1,15 @@
-from pc.vision.camera import run_camera, FPS
+from pc.vision.camera import run_camera
 from pc.util.serial_monitor import serial_monitor, SerialBuffer
 import time
 import threading
 from queue import Queue
 
 import requests
-import os
 
 from pc.arm.kinematics import process_joints, compute_kinematics
 from pc.vision.stability import stability_worker
 from pc.site.site import video_writer, socketio, app
 import pc.site as site
-import math
 
 # Shared State
 stop_event = threading.Event()
@@ -24,6 +22,7 @@ target_buf = Queue(maxsize=1)
 
 site.site.frame_buf = frame_buf
 site.site.stop_event = stop_event
+site.site.target_buf = target_buf
 
 def write_esp32(joint_buf: Queue, stop_event):
     prev_t1 = 0
@@ -73,7 +72,7 @@ def main():
     )
     t7 = threading.Thread(
         target=compute_kinematics,
-        args=(target_buf, joint_buf, stop_event),
+        args=(target_buf, joint_buf, socketio, stop_event),
         daemon=True
     )
 

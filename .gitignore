@@ -5,3 +5,4 @@
 /stm32/Stepper Motor Driver/D*
 /stm32/Stepper Motor Driver/.*
 **/__pycache__
+**/*.mp4

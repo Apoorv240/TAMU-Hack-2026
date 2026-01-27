@@ -5,86 +5,149 @@
   <title>Smart OR Lighting Console</title>
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <style>
+    :root {
+      --bg-main: #05070b;
+      --bg-panel: #0d1117;
+      --bg-panel-alt: #111826;
+      --accent: #1abc9c;          /* teal like imaging UIs */
+      --accent-soft: rgba(26,188,156,0.4);
+      --accent-strong: #00d8ff;
+      --border-subtle: #222733;
+      --text-main: #e5edf7;
+      --text-muted: #8b97aa;
+      --danger: #e74c3c;
+      --success: #2ecc71;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
     body {
       margin: 0;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      background: #f0f8ff;
-      color: #333;
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      background: radial-gradient(circle at top left, #111826 0, #05070b 40%, #000 100%);
+      color: var(--text-main);
       display: flex;
       height: 100vh;
       overflow: hidden;
     }
+
+    /* LEFT WORKLIST BAR */
+
     .sidebar {
       width: 280px;
-      background: #e0f7fa;
-      padding: 20px;
-      box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+      background: linear-gradient(to bottom, #070b12 0, #05070b 40%, #05070b 100%);
+      padding: 14px 12px;
       display: flex;
       flex-direction: column;
-      gap: 15px;
-      border-right: 2px solid #007bff;
+      gap: 12px;
+      border-right: 1px solid var(--border-subtle);
     }
+
     .sidebar h1 {
-      font-size: 20px;
-      margin: 0 0 10px 0;
-      color: #007bff;
+      font-size: 15px;
+      margin: 0 0 6px 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--accent);
     }
+
     .sidebar h2 {
-      font-size: 16px;
-      margin: 20px 0 8px 0;
-      color: #0056b3;
+      font-size: 13px;
+      margin: 10px 0 4px 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
     }
+
     .recordings-list {
       flex: 1;
       overflow-y: auto;
-      border-radius: 8px;
-      background: #fff;
-      padding: 10px;
-      font-size: 14px;
-      border: 1px solid #ccc;
+      background: rgba(7, 11, 18, 0.9);
+      border-radius: 4px;
+      padding: 6px;
+      border: 1px solid var(--border-subtle);
+      font-size: 12px;
     }
+
     .recording-item {
-      padding: 8px 10px;
-      margin-bottom: 6px;
-      border-radius: 6px;
+      padding: 6px 8px;
+      margin-bottom: 4px;
+      border-radius: 3px;
       cursor: pointer;
-      background: #f8f9fa;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      border: 1px solid #dee2e6;
+      background: #05070b;
+      border: 1px solid #151a24;
+      transition: background 0.15s, border-color 0.15s;
     }
+
     .recording-item:hover {
-      background: #e9ecef;
+      background: #0f1724;
+      border-color: var(--accent-soft);
     }
+
     .recording-name {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      max-width: 150px;
+      max-width: 160px;
+      color: var(--text-main);
     }
+
+    /* MAIN GRID */
+
     .main {
       flex: 1;
       display: grid;
-      grid-template-columns: 2fr 1fr;
+      grid-template-columns: 2.5fr 1.2fr;
       grid-template-rows: 100%;
-      gap: 15px;
-      padding: 20px;
+      gap: 10px;
+      padding: 10px 14px 10px 10px;
       box-sizing: border-box;
+      background: radial-gradient(circle at top right, #111826 0, #05070b 45%, #000 100%);
     }
+
     .center-panel {
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 8px;
     }
+
+    /* VIEWPORT (VIDEO + OVERLAY) */
+
     .video-main {
       flex: 1;
-      background: #000;
-      border-radius: 10px;
-      border: 3px solid #007bff;
-      overflow: hidden;
       position: relative;
+      background: #000;
+      border-radius: 4px;
+      border: 2px solid #3c4a5f;
+      box-shadow: 0 0 0 1px #0b1019, 0 0 14px rgba(0, 0, 0, 0.8);
+      overflow: hidden;
     }
+
+    .video-main::before {
+      /* top status bar like PACS monitors */
+      content: "LIVE VIEW • OR-1 • 1920×1080";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 22px;
+      padding: 0 8px;
+      display: flex;
+      align-items: center;
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      background: linear-gradient(to right, #05070b, #050b14);
+      color: var(--text-muted);
+      border-bottom: 1px solid #1a2230;
+      z-index: 5;
+    }
+
     .video-main img,
     .video-main video {
       width: 100%;
@@ -93,66 +156,166 @@
       display: block;
       background: #000;
     }
+
     .overlay {
       position: absolute;
-      top: 0;
+      top: 22px;      /* below the status bar */
       left: 0;
       pointer-events: auto;
     }
+
+    /* BUTTONS / CONTROLS */
+
     .controls {
       display: flex;
-      gap: 10px;
-      justify-content: center;
+      gap: 6px;
+      justify-content: space-between;
+      padding: 6px 0 0 0;
     }
+
     .btn {
-      padding: 10px 20px;
-      border-radius: 8px;
-      color: #fff;
-      border: none;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid #151a24;
+      background: #0b1019;
+      color: var(--text-main);
       cursor: pointer;
-      font-size: 16px;
-      font-weight: bold;
-      transition: background 0.3s;
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
     }
+
     .btn:hover {
-      opacity: 0.9;
+      border-color: var(--accent-soft);
+      box-shadow: 0 0 0 1px var(--accent-soft);
     }
+
     .btn.start {
-      background: #28a745;
+      border-color: var(--success);
+      color: var(--success);
     }
+
     .btn.stop {
-      background: #dc3545;
+      border-color: var(--danger);
+      color: var(--danger);
     }
+
     .btn.live {
-      background: #007bff;
+      border-color: var(--accent-strong);
+      color: var(--accent-strong);
     }
+
+    .btn.secondary {
+      padding: 2px 6px;
+      font-size: 11px;
+      border-radius: 999px;
+    }
+
+    /* RIGHT ANALYTICS COLUMN */
+
     .right-panel {
       display: flex;
       flex-direction: column;
-      gap: 15px;
+      gap: 8px;
     }
+
     .card {
       flex: 1;
-      background: #fff;
-      border-radius: 10px;
-      padding: 15px;
-      box-sizing: border-box;
-      font-size: 14px;
-      border: 2px solid #007bff;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      background: var(--bg-panel);
+      border-radius: 4px;
+      padding: 8px 10px;
+      font-size: 12px;
+      border: 1px solid var(--border-subtle);
+      box-shadow: inset 0 0 0 1px #05070b;
+      display: flex;
+      flex-direction: column;
     }
+
     .card h3 {
-      margin: 0 0 10px 0;
-      font-size: 16px;
-      color: #007bff;
-    }
-    .small-text {
+      margin: 0 0 6px 0;
       font-size: 13px;
-      color: #666;
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--accent);
     }
+
+    .small-text {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    #stabilityChart {
+      background: #05070b;
+      border-radius: 3px;
+      border: 1px solid #151a24;
+    }
+
+    /* LINKS */
+
     a {
       color: inherit;
       text-decoration: none;
+    }
+
+    /* POPUP STYLES */
+    .popup {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: var(--bg-panel);
+      border: 1px solid var(--accent);
+      border-radius: 8px;
+      padding: 30px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+      z-index: 1000;
+      display: none;
+      font-size: 16px;
+      text-align: center;
+      color: var(--text-main);
+      min-width: 200px;
+    }
+
+    .popup-backdrop {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(5px);
+      z-index: 999;
+      display: none;
+    }
+
+    .spinner {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid var(--accent);
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 10px auto;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    /* Basic scrollbars to match dark theme */
+
+    .recordings-list::-webkit-scrollbar {
+      width: 6px;
+    }
+    .recordings-list::-webkit-scrollbar-track {
+      background: #05070b;
+    }
+    .recordings-list::-webkit-scrollbar-thumb {
+      background: #222733;
     }
   </style>
 </head>
@@ -172,8 +335,8 @@
 
     <h2>Recording Control</h2>
     <div class="controls">
-      <button class="btn start" onclick="startCase()">Start</button>
-      <button class="btn stop" onclick="stopCase()">Stop</button>
+      <button class="btn start" id="play-btn" onclick="togglePlay()">Start</button>
+      <!-- <button class="btn stop" onclick="stopCase()">Stop</button> -->
       <button class="btn live" onclick="showLive()">Live</button>
     </div>
   </div>
@@ -204,11 +367,19 @@
       </div>
       <div class="card">
         <h3>Case Summary</h3>
-        <p class="small-text">
-          Placeholder for total duration, number of light interactions, and mode usage.
-        </p>
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          <button class="btn live" id="reset-btn" onclick="resetSystem()" style="border-color: var(--strong-accent);">Reset</button>
+          <button class="btn start" id="enable-btn" onclick="toggleEnable()">Enable</button>
+        </div>
       </div>
     </div>
+  </div>
+
+  <!-- Popup for reset -->
+  <div id="reset-popup-backdrop" class="popup-backdrop"></div>
+  <div id="reset-popup" class="popup">
+    Initializing
+    <div class="spinner"></div>
   </div>
 
   <script>
@@ -349,6 +520,27 @@
       });
     }
 
+    
+    let isPlaying = false;
+    function togglePlay() {
+      const btn = document.getElementById('play-btn');
+      if (isPlaying) {
+        // Disable
+        stopCase();
+        btn.textContent = 'Play';
+        btn.classList.remove('stop');
+        btn.classList.add('start');
+      } else {
+        // Enable
+        startCase();
+        btn.textContent = 'Pause';
+        btn.classList.remove('start');
+        btn.classList.add('stop');
+      }
+      isPlaying = !isPlaying;
+    }
+
+
     async function startCase() {
       await fetch('/start_case', { method: 'POST' });
       await refreshRecordings();
@@ -380,6 +572,54 @@
 
     function downloadRecording(name) {
       window.location.href = '/download/' + encodeURIComponent(name);
+    }
+
+    // Reset and Enable/Disable functions
+    let isEnabled = false;
+
+    function resetSystem() {
+      // Dummy reset function
+      console.log('Reset system called');
+      
+      // Show popup and backdrop
+      const popup = document.getElementById('reset-popup');
+      const backdrop = document.getElementById('reset-popup-backdrop');
+      popup.style.display = 'block';
+      backdrop.style.display = 'block';
+      
+      // Hide after 5 seconds
+      setTimeout(() => {
+        popup.style.display = 'none';
+        backdrop.style.display = 'none';
+      }, 5000);
+    }
+
+    function toggleEnable() {
+      const btn = document.getElementById('enable-btn');
+      if (isEnabled) {
+        // Disable
+        disableSystem();
+        btn.textContent = 'Enable';
+        btn.classList.remove('stop');
+        btn.classList.add('start');
+      } else {
+        // Enable
+        enableSystem();
+        btn.textContent = 'Disable';
+        btn.classList.remove('start');
+        btn.classList.add('stop');
+      }
+      isEnabled = !isEnabled;
+    }
+
+    function enableSystem() {
+      // Dummy enable function
+      console.log('System enabled');
+    }
+
+    function disableSystem() {
+      // Dummy disable function
+      console.log('System disabled');
     }
   </script>
 

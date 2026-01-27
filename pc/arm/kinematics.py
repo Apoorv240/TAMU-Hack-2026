@@ -74,7 +74,7 @@ def compute_kinematics(target_buffer: Queue, joint_buffer: Queue, socketio, stop
         y = 0
         while not target_buffer.empty():
             x, y = target_buffer.get()
-            print(f"{x}, {y}")
+            # print(f"{x}, {y}")
             socketio.emit('target_update', {'x': x, 'y': y})
         theta1, theta2 = inverse_kinematics(x, y)
         if theta1 == 0 and theta2 == 0:

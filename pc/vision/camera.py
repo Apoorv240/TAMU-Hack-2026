@@ -86,7 +86,12 @@ def run_camera(frame_buffer: Queue,
             lmList = hand["lmList"]
 
             fingers = detector.fingersUp(hand)
-            is_pointing = (fingers == [0, 1, 0, 0, 0])
+            print(fingers)
+            # is_pointing = (fingers == [0, 1, 0, 0, 0])
+            if (fingers[1] != fingers[2] and fingers[1] != fingers[3] and fingers[1] != fingers[4]):
+                is_pointing = False
+            else:
+                is_pointing = True
 
             # --- STABILITY LOGGING ---
             # log time + fingertip position for stability calculations

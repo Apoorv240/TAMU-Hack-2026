@@ -14,6 +14,10 @@ WiFiServer server(80);
 #define J2_DIR_PIN   12
 #define J2_EN_PIN    13
 
+// ---------- LIMIT SWITCH PINS ----------
+#define J1_LIMIT_PIN 34  // limit switch for J1, goes HIGH when hit
+#define J2_LIMIT_PIN 19  // limit switch for J2, goes HIGH when hit
+
 // active LOW enable like your STM32 code (A4988/TB6600 style) [web:27]
 #define STEPS_PER_REV 1600   // same as STM32 define
 
@@ -22,6 +26,10 @@ String header;
 // current joint angles
 float current_angle_j1 = 0.0f;
 float current_angle_j2 = 0.0f;
+
+// offsets for zeroing
+float offset_j1 = 0.0f;
+float offset_j2 = 0.0f;
 
 // ---------- HELPERS ----------
 uint32_t angle_to_steps(float angle_deg, uint32_t steps_per_rev) {
@@ -38,6 +46,58 @@ void disable_driver(uint8_t en_pin) {
   digitalWrite(en_pin, HIGH);
 }
 
+// ---------- RESET OFFSETS ----------
+void handleResetRequest() {
+  offset_j1 = current_angle_j1;
+  offset_j2 = current_angle_j2;
+  Serial.println("Offsets reset to current angles");
+}
+
+// ---------- HOMING FUNCTIONS ----------
+void homeJ1() {
+  Serial.println("Homing J1...");
+  // Move towards home position (assume LOW direction decreases angle towards 0)
+  digitalWrite(J1_DIR_PIN, LOW);
+  enable_driver(J1_EN_PIN);
+
+  const uint32_t pulseHigh_ms = 2;
+  const uint32_t baseDelay_ms = 5;  // slower speed for homing
+
+  while (digitalRead(J1_LIMIT_PIN) == LOW) {
+    digitalWrite(J1_STEP_PIN, HIGH);
+    delay(pulseHigh_ms);
+    digitalWrite(J1_STEP_PIN, LOW);
+    delay(baseDelay_ms);
+  }
+
+  disable_driver(J1_EN_PIN);
+  current_angle_j1 = -52.0f;
+  offset_j1 = 0.0f;
+  Serial.println("J1 homed to 0 degrees");
+}
+
+void homeJ2() {
+  Serial.println("Homing J2...");
+  // Move towards home position (assume LOW direction decreases angle towards 0)
+  digitalWrite(J2_DIR_PIN, LOW);
+  enable_driver(J2_EN_PIN);
+
+  const uint32_t pulseHigh_ms = 2;
+  const uint32_t baseDelay_ms = 5;  // slower speed for homing
+
+  while (digitalRead(J2_LIMIT_PIN) == LOW) {
+    digitalWrite(J2_STEP_PIN, HIGH);
+    delay(pulseHigh_ms);
+    digitalWrite(J2_STEP_PIN, LOW);
+    delay(baseDelay_ms);
+  }
+
+  disable_driver(J2_EN_PIN);
+  current_angle_j2 = -90.0f;
+  offset_j2 = 0.0f;
+  Serial.println("J2 homed to 0 degrees");
+}
+
 // ---------- HTTP PARSER: /arm?j1=..&j2=.. ----------
 void handleArmRequest(const String& path) {
   float target_j1 = current_angle_j1;
@@ -52,7 +112,7 @@ void handleArmRequest(const String& path) {
       int amp = query.indexOf('&', j1Pos);
       String v = (amp >= 0) ? query.substring(j1Pos + 3, amp)
                             : query.substring(j1Pos + 3);
-      target_j1 = v.toFloat();
+      target_j1 = v.toFloat() + offset_j1;
     }
 
     int j2Pos = query.indexOf("j2=");
@@ -60,7 +120,7 @@ void handleArmRequest(const String& path) {
       int amp = query.indexOf('&', j2Pos);
       String v = (amp >= 0) ? query.substring(j2Pos + 3, amp)
                             : query.substring(j2Pos + 3);
-      target_j2 = v.toFloat();
+      target_j2 = v.toFloat() + offset_j2;
     }
   }
 
@@ -127,9 +187,9 @@ void handleArmRequest(const String& path) {
   current_angle_j2 = target_j2;
 
   Serial.print("J1 now: ");
-  Serial.print(current_angle_j1);
+  Serial.print(current_angle_j1 - offset_j1);
   Serial.print("  J2 now: ");
-  Serial.println(current_angle_j2);
+  Serial.println(current_angle_j2 - offset_j2);
 }
 
 void setup() {
@@ -141,6 +201,9 @@ void setup() {
   pinMode(J2_STEP_PIN, OUTPUT);
   pinMode(J2_DIR_PIN,  OUTPUT);
   pinMode(J2_EN_PIN,   OUTPUT);
+
+  pinMode(J1_LIMIT_PIN, INPUT);
+  pinMode(J2_LIMIT_PIN, INPUT);
 
   // start disabled
   disable_driver(J1_EN_PIN);
@@ -178,6 +241,21 @@ void loop() {
 
               if (path.startsWith("/arm")) {
                 handleArmRequest(path);
+              } else if (path.startsWith("/reset")) {
+                handleResetRequest();
+              } else if (path.startsWith("/home")) {
+                // Parse which joint to home
+                if (path.indexOf("j1") >= 0) {
+                  homeJ1();
+                } else if (path.indexOf("j2") >= 0) {
+                  homeJ2();
+                } else {
+                  // Home both
+                  homeJ1();
+                //   handleArmRequest("/arm?j1=0&j2=0");
+                  homeJ2();
+                  handleArmRequest("/arm?j1=0&j2=0");
+                }
               }
             }
 
@@ -187,9 +265,9 @@ void loop() {
             client.println("Connection: close");
             client.println();
             client.print("J1=");
-            client.print(current_angle_j1);
+            client.print(current_angle_j1 - offset_j1);
             client.print(" J2=");
-            client.println(current_angle_j2);
+            client.println(current_angle_j2 - offset_j2);
             client.println();
 
             requestDone = true;

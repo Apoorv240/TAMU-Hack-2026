@@ -6,9 +6,13 @@ A comprehensive multi-platform robotic arm control system integrating embedded f
 
 This project implements a complete robotic arm system with distributed processing across multiple microcontrollers and a central PC control station. The architecture enables precise motor control, forward/inverse kinematics calculations, real-time communication, and advanced vision-based hand stability analytics. A key focus is the collection and analysis of operator hand dynamics, including jerk tracking and load stability assessment, to optimize control safety and precision.
 
+## CAD Link
+
+https://cad.onshape.com/documents/e3efc6c97449d4b7a83338c2/w/bb818e9145b54ba6f6d3c1c7/e/6f056eea21a580ebf6d12945?renderMode=0&uiState=697af63218af1f01509a6bf7
+
 ## System Architecture
 
-The project is organized into three primary subsystems:
+The project is organized into two primary subsystems:
 
 ### Microcontroller Firmware
 

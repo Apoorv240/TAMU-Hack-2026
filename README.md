@@ -16,6 +16,12 @@ The project is organized into two primary subsystems:
 
 ### Microcontroller Firmware
 
+## System Architecture
+
+The project is organized into two primary subsystems:
+
+### Microcontroller Firmware
+
 **ESP32 Components**
 - `jointedarm`: Main articulated arm firmware
 - `server`: Network communication server for remote commands
